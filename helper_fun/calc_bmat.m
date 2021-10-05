@@ -18,9 +18,7 @@ function bmat = calc_bmat(bval, diffdir)
         diffdir = diffdir.';
     end
     %scale b-value
-    if max(bval) > 100  
-        bval = bval./1000;
-    end
+    bval = bval_scaling(bval);
     
     dir = [diffdir(:,1).^2, diffdir(:,2).^2, diffdir(:,3).^2, ...
         2*diffdir(:,1).*diffdir(:,2), ...

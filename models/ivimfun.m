@@ -35,7 +35,7 @@ switch length(params)
             error('No valid b-values provided')
         end
     case 3
-        %segmented IVIM for fitting. D is fixed during the fit and is
+        %two-step approach for IVIM fitting. D is fixed during the fit and is
         %provided as second argument in 'bval'.
         S0 = params(1);
         f = params(2);
@@ -51,5 +51,8 @@ switch length(params)
     otherwise
         error('Wrong number of input parameters for IVIM equation')
 end
+
+%scale b-value
+bval = bval_scaling(bval);
 
 signal = S0*(f*exp(-bval*Ds) + (1-f)*exp(-bval*D));

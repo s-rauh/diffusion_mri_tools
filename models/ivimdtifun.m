@@ -9,7 +9,7 @@
 %   - params:               model parameters
 %                           params(1) = S0 signal
 %                           params(2:7) = diffusion tensor, given as 
-%                           n x 7 vector. The order of the tensor elemts
+%                           n x 6 vector. The order of the tensor elemts
 %                           is: Dxx, Dyy, Dzz, Dxy, Dxz, Dyz
 %                           params(8) = perfusion fraction f
 %                           params(9) = pseudo-diffusion coefficient D*                           
@@ -48,7 +48,7 @@ if isempty(find(size(params)==9,1)) && ~isfield(diffparams, 'tensor')
 end
 
 %calculate b-matrix
-bval = diffparams.bval;
+bval = bval_scaling(diffparams.bval);
 diffdir = diffparams.diffdir;
 
 bmat = calc_bmat(bval, diffdir);

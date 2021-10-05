@@ -22,7 +22,7 @@ function dti_params = calc_dti_parameters(tensor)
 
 %reshape tensor
 if size(tensor, ndims(tensor)) ~= 6
-    error('Tensor elements expected in last dimension')
+    error('Tensor elements are expected in last dimension.')
 end
 
 tensor = permute(tensor, [length(size(tensor)), 1:length(size(tensor))-1]);
@@ -59,11 +59,19 @@ for x = 1:size(tensor,2)
     evec(x,:,:) = Eigenvectors;
 end
 
-%reshape to matrix size
-dti_params.MD = reshape(MD, tensor_sz(2:tensor_dim));
-dti_params.FA = reshape(FA, tensor_sz(2:tensor_dim));
-dti_params.eigenval = reshape(eval, [tensor_sz(2:tensor_dim), 3]);
-dti_params.eigenvec = reshape(evec, [tensor_sz(2:tensor_dim), 3, 3]);
+%Assign output arguments. 
+%Reshape to matrix size. Not necessary for 1-voxel analysis
+if tensor_sz(2) >1
+    dti_params.MD = reshape(MD, tensor_sz(2:tensor_dim));
+    dti_params.FA = reshape(FA, tensor_sz(2:tensor_dim));
+    dti_params.eigenval = reshape(eval, [tensor_sz(2:tensor_dim), 3]);
+    dti_params.eigenvec = reshape(evec, [tensor_sz(2:tensor_dim), 3, 3]);
+else
+    dti_params.MD = squeeze(MD);
+    dti_params.FA = squeeze(FA);
+    dti_params.eigenval = squeeze(eval);
+    dti_params.eigenvec = squeeze(evec);
+end
 
 fprintf('Tensor calculation finished in %.2f seconds. \n', toc);
 end

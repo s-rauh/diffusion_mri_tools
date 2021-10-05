@@ -4,7 +4,17 @@
 % Function to perform an DTI fit to data. 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Input values: Diffusion data, b-values, diffusion directions
+% Input values: 
+%   - diffusion data:   Array containing the data. Can be single voxel, a
+%                       slice or volumentric data. The last dimension needs
+%                       to match the number of b-value-diffusion direction 
+%                       combinations. 
+%
+%   - b-values:         Vector containing the b-values 
+%
+%   - diffusion 
+%     directions:       nx3 vector containing the n diffusion directions. 
+%
 % Options: 
 %   - mask:             Default 1
 %                       Background is masked using a threshold cut-off 
@@ -17,7 +27,7 @@
 %                       the diffusion tensor needs to be calculated from the
 %                       lower triangular matrix. 
 %                       Unconstrained: fit the 6 diffusion tensor elements
-%                       immidiately. 
+%                       directly. 
 %
 %   - normalized:       Default 1
 %                       Normalize data to min(bval)-signal
@@ -68,6 +78,7 @@ else
 end
 
 %% calculate b-matrix
+bval = bval_scaling(bval);
 bmat = calc_bmat(bval, diffdir);
 
 %% set fit options

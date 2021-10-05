@@ -4,8 +4,23 @@
 % Function to perform a combined IVIM-DTI fit to data.
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Input values: Diffusion data, b-values, diffusion gradient directions
+% Input values: 
+%   - Diffusion data:   Array containing the data. Can be single voxel, a
+%                       slice or volumentric data. The last dimension needs
+%                       to match the number of b-values/diffusion direction 
+%                       combinations. 
+%
+%   - b-values:         Vector containing the b-values
+%
+%   - diffusion 
+%     directions:       nx3 vector containing the diffusion directions
+%
 % Options:
+%   - initialguess:     Initial guess for f and Ds
+%                       If not provided, default guess will be used. 
+%                       Only f and Ds can be set here, the initial guess
+%                       for S0 and the diffusion tensor is kept constant. 
+%
 %   - mask:             Default 1
 %                       Background is masked by using a threshold cut-off
 %                       value based on the minimum b-value data. 
@@ -13,10 +28,23 @@
 %   - normalize:        Default 1
 %                       Normalize data to the min (bval)-signal
 %
-%   - initialguess:     Initial guess for f and Ds
-%                       If not provided, default guess will be used. 
-%                       Only f and Ds can be set here, the initial guess
-%                       for S0 and the diffusion tensor is kept constant. 
+%   - fit_method        Default 'free'
+%                       'free', 'two_step', 'segmented', 'IVIM_correct'
+%                       'free': The data is fitted to the full IVIM-DTI
+%                       equation. 
+%                       'two_step': First, the diffusion tensor and f are
+%                       estimated using the high b-values only (b >= bcut).
+%                       Then, Dtensor is kept constant and a bi-exponential
+%                       fit is performed to estimate f and Ds. The
+%                       previously calculated value for f is used as
+%                       initial guess. 
+%                       'segmented': A segmented IVIM-DTI fit is performed,
+%                       using b = 0 and b >= bcut to estimate the diffusion
+%                       tensor and f. D* ist not fitted with this method. 
+%                       'IVIM_correct': First an IVIM fit is performed to
+%                       obtain f and Ds. The data is then IVIM-corrected by
+%                       substracting the IVIM component. A pure DTI fit is
+%                       performed on the remaining data. 
 %
 %   - dti_constrained   Default 1
 %                       Constrained fit for the diffusion tensor elements.
@@ -26,22 +54,9 @@
 %                       calculated. The fit boundaries differ from the
 %                       unconstrained fit. 
 %
-%   - fit_method        'free', 'two_step', 'IVIM_correct'
-%                       'free': The data is fitted to the full IVIM-DTI
-%                       equation. 
-%                       'two_step': First, the diffusion tensor and f are
-%                       estimated using the high b-values only (b >= bcut).
-%                       Then, Dtensor is kept constant and a bi-exponential
-%                       fit is performed to estimate f and Ds. The
-%                       previously calculated value for f is used as
-%                       initial guess. 
-%                       'IVIM_correct': First an IVIM fit is performed to
-%                       obtain f and Ds. The data is then IVIM-corrected by
-%                       substracting the IVIM component. A pure DTI fit is
-%                       performed on the remaining data. 
-%
 %   - bcut:             Default 200
-%                       Cut-off b-value for the two_step fit. 
+%                       Cut-off b-value for the two_step fit. The cut-off 
+%                       b-value is included for analysis. 
 %
 % Output:
 % Structure ivimdti_fit containing the following fields:
@@ -59,11 +74,11 @@ arguments
     data 
     bval
     diffdir
+    options.initialguess (2,1)
     options.mask {mustBeNumericOrLogical} = 1
     options.normalize {mustBeNumericOrLogical} = 1
-    options.initialguess (2,1)
+    options.fit_method {mustBeMember(options.fit_method, {'free', 'two_step', 'segmented', 'IVIM_correct'})} = 'free'
     options.dti_constrained = 1;
-    options.fit_method {mustBeMember(options.fit_method, {'free', 'two_step', 'IVIM_correct'})} = 'free'
     options.bcut {mustBeNumeric} = 200
 end
 
@@ -92,13 +107,8 @@ end
 if size(bval,1)==1
     bval = bval.';
 end
-if max(bval) > 100
-    bval = bval./1000;
-end
-if options.bcut > 1
-    options.bcut = options.bcut/1000;
-end
-
+bval = bval_scaling(bval);
+options.bcut = bval_scaling(options.bcut);
 %% set fit options
 diffparams.bval = bval;
 diffparams.diffdir = diffdir;
@@ -163,7 +173,7 @@ switch options.fit_method
             if v == 1
                 lb_seg = lb([1 8 9]); ub_seg = ub([1 8 9]); x0_seg = x0([1 8 9]);
             end
-            %first fit tensor to b >= bcut
+            %First, fit diffusion tensor to b >= bcut
             if options.dti_constrained
                 [param(1:7)] = lsqcurvefit(@dtifun_constr, x0(1:7), calc_bmat(bval(bval>=options.bcut), diffdir(bval>=options.bcut,:)), ...
                     datafit(bval>=options.bcut, v), lb(1:7), ub(1:7), fitoptions);
@@ -173,10 +183,10 @@ switch options.fit_method
                     datafit(bval>=options.bcut,v), lb(1:7), ub(1:7), fitoptions);
                 x(2:7) = param(2:7);
             end
-            %estimate f
+            %Estimate f and use it as initial guess for IVIM fit
             S0_tmp = mean(datafit(bval==min(bval), v));
-            f_guess = 1 - (S0_tmp / param(1));
-            if f_guess < 0
+            f_guess = 1 - (param(1) / S0_tmp);
+            if f_guess < 0 || isnan(f_guess)
                 f_guess = 0;
             end
             x0_seg(2) = f_guess;
@@ -191,10 +201,27 @@ switch options.fit_method
             f_fit(:,v) = x(8);
             Ds_fit(:,v) = x(9);
         end
+    
+    %%%%%%%%%%%%%%%%%%%
+    % segmented fit
+    %%%%%%%%%%%%%%%%%%%  
+    case 'segmented'
+        %loop over voxels
+        for v = 1:size(datafit,2)
+            if options.dti_constrained
+                x = lsqcurvefit(@ivimdtifun_seg_constr, x0(1:8), diffparams, datafit(:,v), lb(1:8), ub(1:8), fitoptions);
+                x(2:7) = lower_triangular2tensor(x(2:7));
+            else
+                x = lsqcurvefit(@ivimdtifun_seg, x0(1:8), diffparams, datafit(:,v), lb(1:8), ub(1:8), fitoptions);
+            end
+            S0_fit(:,v) = x(1);
+            tensor_fit(:,v) = x(2:7);
+            f_fit(:,v) = x(8);
+        end
         
     %%%%%%%%%%%%%%%%%%%
     % IVIM-correct DTI data
-    %%%%%%%%%%%%%%%%%%    
+    %%%%%%%%%%%%%%%%%%%    
     case 'IVIM_correct'      
         %fit IVIM to the signal (ivimfun)
         ivim_pars = fit_ivim(datafit, bval, 'mask', 0, 'normalize', 0, 'two_step', 1);
@@ -228,5 +255,9 @@ ivimdti_fit.tensor           = permute(ivimdti_fit.tensor, ...
 ivimdti_fit.f        = zeros(sz_fit);
 ivimdti_fit.f(sels)  = f_fit;
 
-ivimdti_fit.Ds       = zeros(sz_fit);
-ivimdti_fit.Ds(sels) = Ds_fit;
+if ~isequal(options.fit_method, 'segmented')
+    ivimdti_fit.Ds       = zeros(sz_fit);
+    ivimdti_fit.Ds(sels) = Ds_fit;
+end
+
+end
