@@ -23,11 +23,10 @@
 
 function [diffdata, data_sz, varargout] = reshape_diffdata_for_fit(data, bval)
 
-try
-    bdim = find(size(data)==length(bval));
-catch
+if isempty(find(size(data, ndims(data))==length(bval), 1))
     error('Datasize and number of b-values are not matching!')
 end
+bdim = ndims(data);
 diffdata = permute(data, [bdim, 1:bdim-1 bdim+1:length(size(data))]);
 data_sz = size(diffdata);
 
