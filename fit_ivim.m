@@ -120,65 +120,76 @@ Ds_fit = zeros(1, size(datafit,2));
 %% fit data voxelwise
 fprintf('Perform voxel-wise IVIM fit...\n')
 tic;
+fail = 0;
 for v = 1:size(datafit, 2)
-    switch options.fit_method
-        %%%%%%%%%%%%%%%%%%%
-        % free fit
-        %%%%%%%%%%%%%%%%%%
-        case 'free'
-            x = lsqcurvefit(@ivimfun, x0, bval, datafit(:,v), lb, ub, fitoptions);
+    tmpdat = datafit(:,v);
+    tmpb = bval;
+    [tmpdat, tmpb] = remove_zeros(tmpdat, tmpb);
+    %only perform fit if at least 4 b-values are used
+    if numel(unique(tmpb)) > 3
+        switch options.fit_method
+            %%%%%%%%%%%%%%%%%%%
+            % free fit
+            %%%%%%%%%%%%%%%%%%
+            case 'free'
+                x = lsqcurvefit(@ivimfun, x0, tmpb, tmpdat, lb, ub, fitoptions);
+                
+            %%%%%%%%%%%%%%%%%%%
+            % two_step fit
+            %%%%%%%%%%%%%%%%%%
+            case 'two_step'
+                if v == 1
+                    %adjust boundaries and initial guess
+                    lb_twostep = lb([1 3 4]); ub_twostep = ub([1 3 4]); x0_twostep = x0([1 3 4]);
+                end
+                
+                %First, perform mono-exponential fit to b >= bcut to get an estimate for D
+                [param(1:2)] = lsqcurvefit(@(x, xdat) x(1)*exp(-xdat*x(2)), x0([1,2]), tmpb(tmpb>=options.bcut), tmpdat(tmpb>=options.bcut), ...
+                    lb([1,2]), ub([1,2]), fitoptions);
+                
+                x(2) = param(2);    %D
+                
+                %Estimate f and use it as initial guess for IVIM fit
+                S0_tmp = mean(tmpdat(tmpb==min(tmpb)));
+                f_guess = 1 - (param(1) / S0_tmp);
+                if f_guess < 0 || isnan(f_guess)
+                    f_guess = 0;
+                end
+                x0_twostep(2) = f_guess;
+                
+                %perform fit. D is fixed for the bi-exponential IVIM fit.
+                input.tmpb = tmpb;
+                input.D_fix = x(2);
+                x([1,3:4]) = lsqcurvefit(@ivimfun, x0_twostep, input, tmpdat, lb_twostep, ub_twostep, fitoptions);
+                
+                %%%%%%%%%%%%%%%%%%%
+                % segmented fit
+                %%%%%%%%%%%%%%%%%%
+            case 'segmented'
+                %optional: select desired b-value range (if full range was
+                %acquired)
+                if options.seg_data && v == 1
+                    tmpdat = [tmpdat(tmpb==0); tmpdat(tmpb>=options.bcut)];
+                    tmpb = [tmpb(tmpb==0); tmpb(tmpb>=options.bcut)];
+                end
+                
+                %perform fit
+                x = lsqcurvefit(@ivimfun_seg, x0(1:3), tmpb, tmpdat, lb(1:3), ub(1:3), fitoptions);
+                
+        end
         
-        %%%%%%%%%%%%%%%%%%%
-        % two_step fit
-        %%%%%%%%%%%%%%%%%%
-        case 'two_step'
-            if v == 1
-                %adjust boundaries and initial guess
-                lb_twostep = lb([1 3 4]); ub_twostep = ub([1 3 4]); x0_twostep = x0([1 3 4]);
-            end
-            
-            %First, perform mono-exponential fit to b >= bcut to get an estimate for D
-            [param(1:2)] = lsqcurvefit(@(x, xdat) x(1)*exp(-xdat*x(2)), x0([1,2]), bval(bval>=options.bcut), datafit(bval>=options.bcut,v), ...
-                lb([1,2]), ub([1,2]), fitoptions);
-            
-            x(2) = param(2);    %D
-            
-            %Estimate f and use it as initial guess for IVIM fit
-            S0_tmp = mean(datafit(bval==min(bval),v));
-            f_guess = 1 - (param(1) / S0_tmp);
-            if f_guess < 0 || isnan(f_guess)
-                f_guess = 0;
-            end
-            x0_twostep(2) = f_guess;
-            
-            %perform fit. D is fixed for the bi-exponential IVIM fit.
-            input.bval = bval;
-            input.D_fix = x(2);
-            x([1,3:4]) = lsqcurvefit(@ivimfun, x0_twostep, input, datafit(:,v), lb_twostep, ub_twostep, fitoptions);
-        
-        %%%%%%%%%%%%%%%%%%%
-        % segmented fit
-        %%%%%%%%%%%%%%%%%%
-        case 'segmented'
-            %optional: select desired b-value range (if full range was
-            %acquired)
-            if options.seg_data && v == 1
-               datafit = [datafit(bval==0,:); datafit(bval>=options.bcut,:)];
-               bval = [bval(bval==0); bval(bval>=options.bcut)];
-            end
-            
-            %perform fit
-            x = lsqcurvefit(@ivimfun_seg, x0(1:3), bval, datafit(:,v), lb(1:3), ub(1:3), fitoptions);
-            
-    end
-    
-    S0_fit(v) = x(1);
-    D_fit(v) = x(2);
-    f_fit(v) = x(3);
-    if ~isequal(options.fit_method, 'segmented')
-        Ds_fit(v) = x(4);
+        S0_fit(v) = x(1);
+        D_fit(v) = x(2);
+        f_fit(v) = x(3);
+        if ~isequal(options.fit_method, 'segmented')
+            Ds_fit(v) = x(4);
+        end
+    else
+        fail = fail+1;
+        x(1:4) = 0;
     end
 end
+fprintf('%d pixels were not fitted due to too much missing data. \n', fail);
 
 fprintf('Fit performed in %.2f seconds. \n', toc);
 

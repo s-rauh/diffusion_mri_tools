@@ -143,6 +143,7 @@ Ds_fit = zeros(1, size(datafit, 2));
 %% perform fit
 fprintf('Perform voxel-wise IVIM-DTI fit...\n');
 tic;
+fail = 0;
 %Select fit method
 switch options.fit_method
     
@@ -152,16 +153,27 @@ switch options.fit_method
     case 'free'
         %loop over voxels
         for v = 1:size(datafit,2)
-            if options.dti_constrained
-                x = lsqcurvefit(@ivimdtifun_constr, x0, diffparams, datafit(:,v), lb, ub, fitoptions);
-                x(2:7) = lower_triangular2tensor(x(2:7));
+            tmpdat = datafit(:,v);
+            tmpdiff = diffparams;
+            [tmpdat, tmpdiff] = remove_zeros(tmpdat, tmpdiff);
+            [~,~,udiffdir] = unique(tmpdiff.diffdir(tmpdiff.bval>0,:), 'rows', 'stable');
+            %only perform fit if at least 4 b-values and 6 unique diffusion
+            %directions (without b0) are available
+            if numel(unique(tmpdiff.bval)) > 3 && max(udiffdir) >= 6
+                if options.dti_constrained
+                    x = lsqcurvefit(@ivimdtifun_constr, x0, tmpdiff, tmpdat, lb, ub, fitoptions);
+                    x(2:7) = lower_triangular2tensor(x(2:7));
+                else
+                    x = lsqcurvefit(@ivimdtifun, x0, tmpdiff, tmpdat, lb, ub, fitoptions);
+                end
+                S0_fit(:,v) = x(1);
+                tensor_fit(:,v) = x(2:7);
+                f_fit(:,v) = x(8);
+                Ds_fit(:,v) = x(9);
             else
-                x = lsqcurvefit(@ivimdtifun, x0, diffparams, datafit(:,v), lb, ub, fitoptions);
+                fail = fail+1;
+                x(1:9) = 0;
             end
-            S0_fit(:,v) = x(1);
-            tensor_fit(:,v) = x(2:7);
-            f_fit(:,v) = x(8);
-            Ds_fit(:,v) = x(9);
         end
         
     %%%%%%%%%%%%%%%%%%%
@@ -170,36 +182,47 @@ switch options.fit_method
     case 'two_step'
         %loop over voxels
         for v = 1:size(datafit,2)
-            if v == 1
-                lb_seg = lb([1 8 9]); ub_seg = ub([1 8 9]); x0_seg = x0([1 8 9]);
-            end
-            %First, fit diffusion tensor to b >= bcut
-            if options.dti_constrained
-                [param(1:7)] = lsqcurvefit(@dtifun_constr, x0(1:7), calc_bmat(bval(bval>=options.bcut), diffdir(bval>=options.bcut,:)), ...
-                    datafit(bval>=options.bcut, v), lb(1:7), ub(1:7), fitoptions);
-                x(2:7) = lower_triangular2tensor(param(2:7));
+            tmpdat = datafit(:,v);
+            tmpdiff = diffparams;
+            [tmpdat, tmpdiff] = remove_zeros(tmpdat, tmpdiff);
+            [~,~,udiffdir] = unique(tmpdiff.diffdir(tmpdiff.bval>0,:), 'rows', 'stable');
+            %only perform fit if at least 4 b-values and 6 unique diffusion
+            %directions (without b0) are available
+            if numel(unique(tmpdiff.bval)) > 1 && max(udiffdir) >= 6
+                if v == 1
+                    lb_seg = lb([1 8 9]); ub_seg = ub([1 8 9]); x0_seg = x0([1 8 9]);
+                end
+                %First, fit diffusion tensor to b >= bcut
+                if options.dti_constrained
+                    [param(1:7)] = lsqcurvefit(@dtifun_constr, x0(1:7), calc_bmat(tmpdiff.bval(tmpdiff.bval>=options.bcut), tmpdiff.diffdir(tmpdiff.bval>=options.bcut,:)), ...
+                        tmpdat(tmpdiff.bval>=options.bcut), lb(1:7), ub(1:7), fitoptions);
+                    x(2:7) = lower_triangular2tensor(param(2:7));
+                else
+                    [param(1:7)] = lsqcurvefit(@dtifun, x0(1:7), calc_bmat(tmpdiff.bval(tmpdiff.bval>=options.bcut), tmpdiff.diffdir(tmpdiff.bval>=options.bcut,:)), ...
+                        tmpdat(tmpdiff.bval>=options.bcut), lb(1:7), ub(1:7), fitoptions);
+                    x(2:7) = param(2:7);
+                end
+                %Estimate f and use it as initial guess for IVIM fit
+                S0_tmp = mean(tmpdat(tmpdiff.bval==min(tmpdiff.bval)));
+                f_guess = 1 - (param(1) / S0_tmp);
+                if f_guess < 0 || isnan(f_guess)
+                    f_guess = 0;
+                end
+                x0_seg(2) = f_guess;
+                
+                %perform fit with fixed diffusion tensor
+                tmpdiff.tensor = x(2:7);
+                x([1,8:9]) = lsqcurvefit(@ivimdtifun, x0_seg, tmpdiff, tmpdat, lb_seg, ub_seg, fitoptions);
+                
+                
+                S0_fit(:,v) = x(1);
+                tensor_fit(:,v) = x(2:7);
+                f_fit(:,v) = x(8);
+                Ds_fit(:,v) = x(9);
             else
-                [param(1:7)] = lsqcurvefit(@dtifun, x0(1:7), calc_bmat(bval(bval>=options.bcut), diffdir(bval>=options.bcut,:)), ...
-                    datafit(bval>=options.bcut,v), lb(1:7), ub(1:7), fitoptions);
-                x(2:7) = param(2:7);
+                fail = fail+1;
+                x(1:9) = 0;
             end
-            %Estimate f and use it as initial guess for IVIM fit
-            S0_tmp = mean(datafit(bval==min(bval), v));
-            f_guess = 1 - (param(1) / S0_tmp);
-            if f_guess < 0 || isnan(f_guess)
-                f_guess = 0;
-            end
-            x0_seg(2) = f_guess;
-            
-            %perform fit with fixed diffusion tensor
-            diffparams.tensor = x(2:7);
-            x([1,8:9]) = lsqcurvefit(@ivimdtifun, x0_seg, diffparams, datafit(:,v), lb_seg, ub_seg, fitoptions);
-            
-            
-            S0_fit(:,v) = x(1);
-            tensor_fit(:,v) = x(2:7);
-            f_fit(:,v) = x(8);
-            Ds_fit(:,v) = x(9);
         end
     
     %%%%%%%%%%%%%%%%%%%
@@ -208,15 +231,26 @@ switch options.fit_method
     case 'segmented'
         %loop over voxels
         for v = 1:size(datafit,2)
-            if options.dti_constrained
-                x = lsqcurvefit(@ivimdtifun_seg_constr, x0(1:8), diffparams, datafit(:,v), lb(1:8), ub(1:8), fitoptions);
-                x(2:7) = lower_triangular2tensor(x(2:7));
+            tmpdat = datafit(:,v);
+            tmpdiff = diffparams;
+            [tmpdat, tmpdiff] = remove_zeros(tmpdat, tmpdiff);
+            [~,~,udiffdir] = unique(tmpdiff.diffdir(tmpdiff.bval>0,:),'rows', 'stable');
+            %only perform fit if at least 2 b-values and 6 unique diffusion
+            %directions (without b0) are available
+            if numel(unique(tmpdiff.bval)) > 1 && max(udiffdir) >= 6
+                if options.dti_constrained
+                    x = lsqcurvefit(@ivimdtifun_seg_constr, x0(1:8), tmpdiff, tmpdat, lb(1:8), ub(1:8), fitoptions);
+                    x(2:7) = lower_triangular2tensor(x(2:7));
+                else
+                    x = lsqcurvefit(@ivimdtifun_seg, x0(1:8), tmpdiff, tmpdat, lb(1:8), ub(1:8), fitoptions);
+                end
+                S0_fit(:,v) = x(1);
+                tensor_fit(:,v) = x(2:7);
+                f_fit(:,v) = x(8);
             else
-                x = lsqcurvefit(@ivimdtifun_seg, x0(1:8), diffparams, datafit(:,v), lb(1:8), ub(1:8), fitoptions);
+                fail = fail+1;
+                x(1:8) = 0;
             end
-            S0_fit(:,v) = x(1);
-            tensor_fit(:,v) = x(2:7);
-            f_fit(:,v) = x(8);
         end
         
     %%%%%%%%%%%%%%%%%%%
@@ -236,6 +270,8 @@ switch options.fit_method
         Ds_fit = ivim_pars.Ds;
         tensor_fit = dti_pars.D.';
 end
+fprintf('%d pixels were not fitted due to too much missing data. \n', fail);
+
 fprintf('Fit performed in %.2f seconds. \n', toc);
 
 %% rearrange output

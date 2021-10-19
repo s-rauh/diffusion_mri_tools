@@ -105,18 +105,31 @@ S0_fit = zeros(1, size(datafit,2));
 %% perform fit
 fprintf('Perform voxel-wise DTI fit...\n');
 tic; 
+fail = 0;
 for v = 1:size(datafit,2)
-    if options.constrained
-        t = lsqcurvefit(@dtifun_constr, x0, bmat, datafit(:,v), lb, ub, fitoptions);
-        % Calculate tensor elements from Cholesky lower triangular matrix
-        t(2:7) = lower_triangular2tensor(t(2:7));
+    tmpdat = datafit(:,v);
+    tmpbmat = bmat;
+    [tmpdat, tmpbmat] = remove_zeros(tmpdat, tmpbmat);
+    [~,~,udiffdir] = unique(tmpbmat, 'rows', 'stable');
+    %only perform fit if at least 7 unique diffusion directions 
+    % (scans) are used
+    if max(udiffdir) > 6
+        if options.constrained
+            t = lsqcurvefit(@dtifun_constr, x0, tmpbmat, tmpdat, lb, ub, fitoptions);
+            % Calculate tensor elements from Cholesky lower triangular matrix
+            t(2:7) = lower_triangular2tensor(t(2:7));
+        else
+            t = lsqcurvefit(@dtifun, x0, tmpbmat, tmpdat, lb, ub, fitoptions);
+        end
+        
+        tensor(:,v) = t(2:7);
+        S0_fit(v) = t(1);
     else
-        t = lsqcurvefit(@dtifun, x0, bmat, datafit(:,v), lb, ub, fitoptions);
+        fail = fail + 1;
+        t(1:7) = 0;
     end
-    
-    tensor(:,v) = t(2:7);
-    S0_fit(v) = t(1);
 end
+fprintf('%d pixels were not fitted due to too much missing data. \n', fail);
 
 fprintf('Fit performed in %.2f seconds. \n', toc);
 

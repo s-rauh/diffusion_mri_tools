@@ -7,6 +7,8 @@ Three types of fitting are currently implemented:
 * DTI fit
 * IVIM-DTI fit
 
+The fit is performed voxel-wise. Only voxels with sufficient data are considered, i.e. zeros in the data are excluded. If a voxel contains to many zeros (i.e. not enough b-values or diffusion directions), the voxel is excluded from the fit. This can occur due to registration of data at the edges of FOV for specific b-values/directions. 
+
 ### IVIM fit
 The IVIM model estimates the tissue diffusion coefficient D, the perfusion fraction f and the pseudo-diffusion coefficient D*. Three fit methods are supported: free, two-step approach or segmented/simplified IVIM. 
 
