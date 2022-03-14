@@ -16,6 +16,15 @@
 %     directions:       nx3 vector containing the n diffusion directions. 
 %
 % Options: 
+%   - initialguess:     Initial guess for D
+%                       If not provided, default guess will be used (1). 
+%                       For the diffusion tensor, the initial guess
+%                       is set to D on the diagonal and 0 on the
+%                       off-diagonal elements. 
+%                       The initial guess for S0 is either 1 (if data is
+%                       normalized) or the mean b-0 signal (if data is not
+%                       normalized).
+%
 %   - mask:             Default 1
 %                       Background is masked using a threshold cut-off 
 %                       value 
@@ -48,6 +57,7 @@ arguments
     data
     bval
     diffdir
+    options.initialguess (1,1) = 1
     options.mask {mustBeNumericOrLogical} = 1
     options.constrained {mustBeNumericOrLogical} = 1
     options.normalize {mustBeNumericOrLogical} = 1
@@ -68,13 +78,17 @@ else
     datafit = data;
 end
 
-%% optional: normalize data
+%% Set initial guess for fit, optional: normalize data
 if options.normalize
     datafit = norm_diffdata(datafit, bval);
     %set initial guess
-    x0 = [1 1 1 1 0 0 0];
+    x0(1) = 1;
+    x0(2:4) = options.initialguess;
+    x0(5:7) = 0;
 else
-    x0 = [mean(datafit(bval==min(bval),:), 'all') 1 1 1 0 0 0];
+    x0 = mean(datafit(bval==min(bval),:), 'all');
+    x0(2:4) = options.initialguess;
+    x0(5:7) = 0;
 end
 
 %% calculate b-matrix

@@ -23,21 +23,27 @@
 
 function [diffdata, data_sz, varargout] = reshape_diffdata_for_fit(data, bval)
 
-if isempty(find(size(data, ndims(data))==length(bval), 1))
-    error('Datasize and number of b-values are not matching!')
-end
-bdim = ndims(data);
-diffdata = permute(data, [bdim, 1:bdim-1 bdim+1:length(size(data))]);
-data_sz = size(diffdata);
-
-diffdata = reshape(diffdata, length(bval), []);
-diffdata = double(diffdata);
-
-if nargout > 2
-    varargout{1} = bdim;
-end
-
-if nargout > 3
-    %permutation vector
-    varargout{2} = [bdim, 1:bdim-1 bdim+1:length(size(data))];
+%only for multi-voxel fit
+if ~(size(data,2) == 1)
+    if isempty(find(size(data, ndims(data))==length(bval), 1))
+        error('Datasize and number of b-values are not matching!')
+    end
+    bdim = ndims(data);
+    diffdata = permute(data, [bdim, 1:bdim-1 bdim+1:length(size(data))]);
+    data_sz = size(diffdata);
+    
+    diffdata = reshape(diffdata, length(bval), []);
+    diffdata = double(diffdata);
+    
+    if nargout > 2
+        varargout{1} = bdim;
+    end
+    
+    if nargout > 3
+        %permutation vector
+        varargout{2} = [bdim, 1:bdim-1 bdim+1:length(size(data))];
+    end
+else %single voxel case (e.g. simulations)
+    diffdata = data;
+    data_sz = size(data);
 end

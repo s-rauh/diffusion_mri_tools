@@ -67,6 +67,7 @@ if min(size(params))==1
 
     f = params(end-1);
     Ds = params(end);
+    
 else
     %multiple voxels
     if isempty(find(size(params)==9,1))

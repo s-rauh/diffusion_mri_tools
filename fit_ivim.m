@@ -12,8 +12,12 @@
 %   - b-values:         Vector containing the b-values
 %
 % Options:
-%   - initialguess:     S0, D, f, Ds
-%                       If not provided, default guess will be used.
+%   - initialguess:     D, f, Ds
+%                       If not provided, default guess will be used [1,
+%                       0.2, 50]. 
+%                       The initial guess for S0 is either 1 (if data is
+%                       normalized) or the mean b-0 signal (if data is not
+%                       normalized). 
 %
 %   - mask:             Default 1
 %                       Background is masked by using a threshold cut-off
@@ -56,20 +60,13 @@ function ivim_fit = fit_ivim(data, bval, options)
 arguments
     data
     bval
-    options.initialguess (4,1)
+    options.initialguess (3,1) = [1, 0.2, 50];
     options.mask {mustBeNumericOrLogical} = 1
     options.normalize {mustBeNumericOrLogical} = 1    
     options.fit_method {mustBeMember(options.fit_method, {'free', 'two_step', 'segmented'})} = 'two_step'
     options.bcut {mustBeNumeric} = 200
     options.seg_data {mustBeNumericOrLogical} = 0
 
-end
-
-% set initial guess for fit
-if isfield(options, 'initialguess')
-    x0 = options.initialguess;
-else
-    x0 = [1, 1.7, 0.1, 10];
 end
 
 %% rearrange and reshape data to a bval x n array
@@ -84,12 +81,12 @@ else
     datafit = data;
 end
 
-%% optional: normalize data
+%% Set initial guess for fit, optional: normalize data
 if options.normalize
     datafit = norm_diffdata(datafit, bval);
-    x0(1) = 1;  %initial guess S0
+    x0 = [1, options.initialguess];  
 else
-    x0(1) = mean(datafit(bval==min(bval),:), 'all');
+    x0 = [mean(datafit(bval==min(bval),:), 'all'), options.initialguess];
 end
 
 %% scale b-value
@@ -158,7 +155,7 @@ for v = 1:size(datafit, 2)
                 x0_twostep(2) = f_guess;
                 
                 %perform fit. D is fixed for the bi-exponential IVIM fit.
-                input.tmpb = tmpb;
+                input.bval = tmpb;
                 input.D_fix = x(2);
                 x([1,3:4]) = lsqcurvefit(@ivimfun, x0_twostep, input, tmpdat, lb_twostep, ub_twostep, fitoptions);
                 

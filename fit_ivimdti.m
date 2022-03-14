@@ -16,10 +16,15 @@
 %     directions:       nx3 vector containing the diffusion directions
 %
 % Options:
-%   - initialguess:     Initial guess for f and Ds
-%                       If not provided, default guess will be used. 
-%                       Only f and Ds can be set here, the initial guess
-%                       for S0 and the diffusion tensor is kept constant. 
+%   - initialguess:     Initial guess for D, f and Ds
+%                       If not provided, default guess will be used [1, 
+%                       0.2, 50] 
+%                       For the diffusion tensor, the initial guess
+%                       is set to D on the diagonal and 0 on the
+%                       off-diagonal elements. 
+%                       The initial guess for S0 is either 1 (if data is
+%                       normalized) or the mean b-0 signal (if data is not
+%                       normalized). 
 %
 %   - mask:             Default 1
 %                       Background is masked by using a threshold cut-off
@@ -74,7 +79,7 @@ arguments
     data 
     bval
     diffdir
-    options.initialguess (2,1)
+    options.initialguess (3,1) = [1, 0.2, 50]
     options.mask {mustBeNumericOrLogical} = 1
     options.normalize {mustBeNumericOrLogical} = 1
     options.fit_method {mustBeMember(options.fit_method, {'free', 'two_step', 'segmented', 'IVIM_correct'})} = 'free'
@@ -94,13 +99,20 @@ else
     datafit = data;
 end
 
-%% optional: normalize data
+%% Set initial guess for fit, optional: normalize data
+% x0 = [S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz, f, D*]
 if options.normalize
     datafit = norm_diffdata(datafit, bval);
     %set initial guess
-    x0 = [1 1 1 1 0 0 0 0.1 10];
+    x0(1) = 1;
+    x0(2:4) = options.initialguess(1);
+    x0(5:7) = 0;
+    x0(8:9) = options.initialguess(2:3);
 else
-    x0 = [mean(datafit(bval==min(bval),:), 'all') 1 1 1 0 0 0 0.1 10];
+    x0(1) = mean(datafit(bval==min(bval),:), 'all');
+    x0(2:4) = options.initialguess(1);
+    x0(5:7) = 0;
+    x0(8:9) = options.initialguess(2:3);
 end
 
 %% scale b-value
@@ -112,11 +124,6 @@ options.bcut = bval_scaling(options.bcut);
 %% set fit options
 diffparams.bval = bval;
 diffparams.diffdir = diffdir;
-
-if isfield(options, 'initialguess')
-    %initial guess for f and D*
-    x0(8:9) = options.initialguess;
-end
 
 if options.dti_constrained
     %Fit Cholesky lower triangular matrix coefficients
