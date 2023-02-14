@@ -48,6 +48,20 @@ switch length(params)
             error('Incorrect input. No value for D is provided.')
         end
         
+    case 2
+        %two-step approach for IVIM fitting with fixed D*. 
+        %D is also fixed during the fit (pre-calculated) and is provided as
+        %second argument in 'bval'. 
+        %D* is also stored in the structure 'bval'. 
+        S0 = params(1); 
+        f = params(2);
+        if isstruct(bval)
+            D = bval.D_fix;
+            Ds = bval.Ds_fix;
+            bval = bval.bval;
+        else
+            error('Incorrect input. No value for D or D* is provided.')
+        end
     otherwise
         error('Wrong number of input parameters for IVIM equation')
 end

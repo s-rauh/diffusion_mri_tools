@@ -127,7 +127,7 @@ diffparams.diffdir = diffdir;
 
 if options.dti_constrained
     %Fit Cholesky lower triangular matrix coefficients
-    lb = [0   -9 -9 -9 -9 -9 -9 0   5];
+    lb = [0   -9 -9 -9 -9 -9 -9 0   5+1e-5];
     ub = [inf  9  9  9  9  9  9 1 300];
 else
     lb = [0   0 0 0 0 0 0 0   5];
@@ -193,12 +193,12 @@ switch options.fit_method
             tmpdiff = diffparams;
             [tmpdat, tmpdiff] = remove_zeros(tmpdat, tmpdiff);
             [~,~,udiffdir] = unique(tmpdiff.diffdir(tmpdiff.bval>0,:), 'rows', 'stable');
-            %only perform fit if at least 4 b-values and 6 unique diffusion
+            if v == 1
+                lb_seg = lb([1 8 9]); ub_seg = ub([1 8 9]); x0_seg = x0([1 8 9]);
+            end
+            %only perform fit if at least 2 b-values and 6 unique diffusion
             %directions (without b0) are available
             if numel(unique(tmpdiff.bval)) > 1 && max(udiffdir) >= 6
-                if v == 1
-                    lb_seg = lb([1 8 9]); ub_seg = ub([1 8 9]); x0_seg = x0([1 8 9]);
-                end
                 %First, fit diffusion tensor to b >= bcut
                 if options.dti_constrained
                     [param(1:7)] = lsqcurvefit(@dtifun_constr, x0(1:7), calc_bmat(tmpdiff.bval(tmpdiff.bval>=options.bcut), tmpdiff.diffdir(tmpdiff.bval>=options.bcut,:)), ...
@@ -263,13 +263,19 @@ switch options.fit_method
     %%%%%%%%%%%%%%%%%%%
     % IVIM-correct DTI data
     %%%%%%%%%%%%%%%%%%%    
-    case 'IVIM_correct'      
-        %fit IVIM to the signal (ivimfun)
-        ivim_pars = fit_ivim(datafit, bval, 'mask', 0, 'normalize', 0, 'two_step', 1);
+    % Based on QMRITools in Mathematica by Martijn Froeling
+    case 'IVIM_correct'    
+        %first, fit IVIM to mean signal to obtain D* to fix
+        [mdat, ~] = mask_diffdata(data, bval);
+        ivim_mean = fit_ivim(mean(mdat,2), bval, 'mask', 0, 'normalize', 1);
+        fprintf('Fixed D* value obtained from mean fit: D* =  %d \n', ivim_mean.Ds);
+        %then, fit IVIM (voxel-wise) to the signal with a fixed D* value (ivimfun)
+        ivim_pars = fit_ivim(datafit.', bval, 'Ds_fix', ivim_mean.Ds, ...
+            'mask', 0, 'normalize', 0);
         %IVIM-correct DTI signal by substracting IVIM component
         datafit_cor = datafit - ivim_pars.S0.*ivim_pars.f.*exp(-bval.*ivim_pars.Ds);
         %fit DTI to remaining DTI signal (dtifun)
-        dti_pars = fit_dti(datafit_cor, bval, diffdir, ...
+        dti_pars = fit_dti(datafit_cor.', bval, diffdir, ...
             'constrained', options.dti_constrained, 'mask', 0, 'normalize', 0);      
         
         S0_fit = ivim_pars.S0;

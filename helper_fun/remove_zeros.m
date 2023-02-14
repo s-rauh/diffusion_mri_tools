@@ -1,4 +1,9 @@
-function [data, diffparams] = remove_zeros(data, diffparams)
+function [data, diffparams, varargout] = remove_zeros(data, diffparams, options)
+arguments
+    data
+    diffparams
+    options.bval = []
+end
 
 if isstruct(diffparams)
     %IVIM-DTI
@@ -12,4 +17,9 @@ else
     diffparams(data==0,:) = [];
 end
 data(data==0) = [];
+
+if ~isempty(options.bval)
+    options.bval(data==0) = [];
+    varargout{1} = options.bval;
+end
 

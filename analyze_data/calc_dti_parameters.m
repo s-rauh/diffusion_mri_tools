@@ -18,7 +18,11 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function dti_params = calc_dti_parameters(tensor)
+function dti_params = calc_dti_parameters(tensor, options)
+arguments
+   tensor
+   options.clip {mustBeNumericOrLogical} = 0
+end
 
 %reshape tensor
 if size(tensor, ndims(tensor)) ~= 6
@@ -71,6 +75,14 @@ else
     dti_params.FA = squeeze(FA);
     dti_params.eigenval = squeeze(eval);
     dti_params.eigenvec = squeeze(evec);
+end
+
+if options.clip
+    dti_params.MD(dti_params.MD<0) = 0;
+    dti_params.MD(dti_params.MD>5) = 0;
+    dti_params.eigenval(dti_params.eigenval>10) = 0;
+    dti_params.eigenval(dti_params.eigenval<0) = 0;
+    dti_params.FA(dti_params.FA>1) = 0;
 end
 
 fprintf('Tensor calculation finished in %.2f seconds. \n', toc);
